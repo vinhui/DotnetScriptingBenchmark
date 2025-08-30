@@ -11,9 +11,9 @@ namespace DotnetScriptingBenchmark;
 public class Benchmark
 {
     public dynamic JSAdd = null!;
-    public LuaFunction LuaAdd = null!;
-    public LuaFunction LuaAddLoop = null!;
-    public LuaFunction LuaAddLoopInterop = null!;
+    public LuaFunction NLuaAdd = null!;
+    public LuaFunction NLuaAddLoop = null!;
+    public LuaFunction NLuaAddLoopInterop = null!;
 
     public Func<int, int, int> WasmAdd = null!;
     public Func<int, int> WasmAddLoop = null!;
@@ -27,7 +27,7 @@ public class Benchmark
     public Benchmark()
     {
         InitWasm();
-        InitLua();
+        InitNLua();
         InitJS();
         InitPy();
     }
@@ -38,7 +38,7 @@ public class Benchmark
 
     public static IEnumerable<int> ValuesForCount => [100, 10_000, 1_000_000];
 
-    public Lua Lua { get; set; } = null!;
+    public Lua NLua { get; set; } = null!;
 
     public Instance WasmInstance { get; set; } = null!;
 
@@ -99,11 +99,11 @@ function addLoopInterop(count) {
         JSEngine.AddHostObject("addCs", new Func<int, int, int>(Add));
     }
 
-    private void InitLua()
+    private void InitNLua()
     {
-        Lua = new Lua();
+        NLua = new Lua();
 
-        Lua.DoString(@"
+        NLua.DoString(@"
 	function add (a, b)
 		return a + b;
 	end
@@ -127,11 +127,11 @@ function addLoopInterop(count) {
 
         var methodInfo = typeof(Benchmark)
             .GetMethod(nameof(Add), BindingFlags.NonPublic | BindingFlags.Static | BindingFlags.Instance);
-        Lua.RegisterFunction("addCs", methodInfo);
+        NLua.RegisterFunction("addCs", methodInfo);
 
-        LuaAdd = Lua["add"] as LuaFunction ?? throw new InvalidOperationException();
-        LuaAddLoop = Lua["addLoop"] as LuaFunction ?? throw new InvalidOperationException();
-        LuaAddLoopInterop = Lua["addLoopInterop"] as LuaFunction ?? throw new InvalidOperationException();
+        NLuaAdd = NLua["add"] as LuaFunction ?? throw new InvalidOperationException();
+        NLuaAddLoop = NLua["addLoop"] as LuaFunction ?? throw new InvalidOperationException();
+        NLuaAddLoopInterop = NLua["addLoopInterop"] as LuaFunction ?? throw new InvalidOperationException();
     }
 
     public void InitWasm()
@@ -193,9 +193,9 @@ function addLoopInterop(count) {
     }
 
     [Benchmark]
-    public int LuaOnly()
+    public int NLuaOnly()
     {
-        return (int)(long)LuaAddLoop.Call(Count)[0];
+        return (int)(long)NLuaAddLoop.Call(Count)[0];
     }
 
     [Benchmark]
@@ -220,10 +220,10 @@ function addLoopInterop(count) {
     }
 
     [Benchmark]
-    public int CsToLua()
+    public int CsToNLua()
     {
         var a = 0;
-        for (var i = 0; i < Count; i++) a += (int)(long)LuaAdd.Call(i, i)[0];
+        for (var i = 0; i < Count; i++) a += (int)(long)NLuaAdd.Call(i, i)[0];
         return a;
     }
 
@@ -252,9 +252,9 @@ function addLoopInterop(count) {
     }
 
     [Benchmark]
-    public int LuaToCs()
+    public int NLuaToCs()
     {
-        return (int)(long)LuaAddLoopInterop.Call(Count)[0];
+        return (int)(long)NLuaAddLoopInterop.Call(Count)[0];
     }
 
     [Benchmark]
