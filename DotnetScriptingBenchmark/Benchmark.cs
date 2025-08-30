@@ -1,19 +1,23 @@
 using System.Reflection;
 using BenchmarkDotNet.Attributes;
+using Lua;
 using Microsoft.ClearScript.V8;
 using Microsoft.Scripting.Hosting;
-using NLua;
 using Wasmtime;
+using LuaFunction = NLua.LuaFunction;
 using Module = Wasmtime.Module;
 
 namespace DotnetScriptingBenchmark;
 
 public class Benchmark
 {
-    public dynamic JSAdd = null!;
     public LuaFunction NLuaAdd = null!;
     public LuaFunction NLuaAddLoop = null!;
     public LuaFunction NLuaAddLoopInterop = null!;
+
+    public Lua.LuaFunction LuaCSharpAdd = null!;
+    public Lua.LuaFunction LuaCSharpAddLoop = null!;
+    public Lua.LuaFunction LuaCSharpAddLoopInterop = null!;
 
     public Func<int, int, int> WasmAdd = null!;
     public Func<int, int> WasmAddLoop = null!;
@@ -28,6 +32,7 @@ public class Benchmark
     {
         InitWasm();
         InitNLua();
+        InitLuaCSharp();
         InitJS();
         InitPy();
     }
@@ -38,7 +43,8 @@ public class Benchmark
 
     public static IEnumerable<int> ValuesForCount => [100, 10_000, 1_000_000];
 
-    public Lua NLua { get; set; } = null!;
+    public NLua.Lua NLua { get; set; } = null!;
+    public LuaState LuaCSharp { get; set; } = null!;
 
     public Instance WasmInstance { get; set; } = null!;
 
@@ -101,7 +107,7 @@ function addLoopInterop(count) {
 
     private void InitNLua()
     {
-        NLua = new Lua();
+        NLua = new NLua.Lua();
 
         NLua.DoString(@"
 	function add (a, b)
@@ -132,6 +138,44 @@ function addLoopInterop(count) {
         NLuaAdd = NLua["add"] as LuaFunction ?? throw new InvalidOperationException();
         NLuaAddLoop = NLua["addLoop"] as LuaFunction ?? throw new InvalidOperationException();
         NLuaAddLoopInterop = NLua["addLoopInterop"] as LuaFunction ?? throw new InvalidOperationException();
+    }
+
+    private void InitLuaCSharp()
+    {
+        const string code = @"
+	function add (a, b)
+		return a + b;
+	end
+
+    function addLoop (count)
+        a = 0;
+        for i = 0, count do
+            a = a + add(i, i);
+        end
+        return a;
+    end
+
+    function addLoopInterop (count)
+        a = 0;
+        for i = 0, count do
+            a = a + addCs(i, i);
+        end
+        return a;
+    end
+
+return add, addLoop, addLoopInterop;
+";
+        LuaCSharp = LuaState.Create();
+        LuaCSharp.Environment["addCs"] = new Lua.LuaFunction((context, buffer, ct) =>
+        {
+            buffer.Span[0] = Add(context.GetArgument<int>(0), context.GetArgument<int>(0));
+            return new(1);
+        });
+        var task = LuaCSharp.DoStringAsync(code);
+        var result = task.GetAwaiter().GetResult();
+        LuaCSharpAdd = result[0].Read<Lua.LuaFunction>();
+        LuaCSharpAddLoop = result[1].Read<Lua.LuaFunction>();
+        LuaCSharpAddLoopInterop = result[2].Read<Lua.LuaFunction>();
     }
 
     public void InitWasm()
@@ -199,6 +243,13 @@ function addLoopInterop(count) {
     }
 
     [Benchmark]
+    public async Task<int> LuaCSharpOnly()
+    {
+        var results = await LuaCSharpAddLoop.InvokeAsync(LuaCSharp, [Count]);
+        return results[0].Read<int>();
+    }
+
+    [Benchmark]
     public int JSOnly()
     {
         return (int)JSEngine.Script.addLoop(Count);
@@ -224,6 +275,19 @@ function addLoopInterop(count) {
     {
         var a = 0;
         for (var i = 0; i < Count; i++) a += (int)(long)NLuaAdd.Call(i, i)[0];
+        return a;
+    }
+
+    [Benchmark]
+    public async Task<int> CsToLuaCSharp()
+    {
+        var a = 0;
+        for (var i = 0; i < Count; i++)
+        {
+            var result = await LuaCSharpAdd.InvokeAsync(LuaCSharp, [i, i]);
+            a += result[0].Read<int>();
+        }
+
         return a;
     }
 
@@ -255,6 +319,13 @@ function addLoopInterop(count) {
     public int NLuaToCs()
     {
         return (int)(long)NLuaAddLoopInterop.Call(Count)[0];
+    }
+
+    [Benchmark]
+    public async Task<int> LuaCSharpToCs()
+    {
+        var result = await LuaCSharpAddLoopInterop.InvokeAsync(LuaCSharp, [Count]);
+        return result[0].Read<int>();
     }
 
     [Benchmark]
