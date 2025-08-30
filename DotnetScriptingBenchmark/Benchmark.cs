@@ -1,6 +1,7 @@
 using System.Reflection;
 using BenchmarkDotNet.Attributes;
 using Microsoft.ClearScript.V8;
+using Microsoft.Scripting.Hosting;
 using NLua;
 using Wasmtime;
 using Module = Wasmtime.Module;
@@ -9,14 +10,18 @@ namespace DotnetScriptingBenchmark;
 
 public class Benchmark
 {
-    public dynamic JSAdd;
-    public LuaFunction LuaAdd;
-    public LuaFunction LuaAddLoop;
-    public LuaFunction LuaAddLoopInterop;
+    public dynamic JSAdd = null!;
+    public LuaFunction LuaAdd = null!;
+    public LuaFunction LuaAddLoop = null!;
+    public LuaFunction LuaAddLoopInterop = null!;
 
-    public Func<int, int, int> WasmAdd;
-    public Func<int, int> WasmAddLoop;
-    public Func<int, int> WasmAddLoopInterop;
+    public Func<int, int, int> WasmAdd = null!;
+    public Func<int, int> WasmAddLoop = null!;
+    public Func<int, int> WasmAddLoopInterop = null!;
+
+    public Func<int, int, int> PyAdd = null!;
+    public Func<int, int> PyAddLoop = null!;
+    public Func<int, int> PyAddLoopInterop = null!;
 
 
     public Benchmark()
@@ -24,19 +29,49 @@ public class Benchmark
         InitWasm();
         InitLua();
         InitJS();
+        InitPy();
     }
 
-    public V8ScriptEngine JSEngine { get; set; }
+    public V8ScriptEngine JSEngine { get; set; } = null!;
 
     [ParamsSource(nameof(ValuesForCount))] public int Count { get; set; }
 
     public static IEnumerable<int> ValuesForCount => [100, 10_000, 1_000_000];
 
-    public Lua Lua { get; set; }
+    public Lua Lua { get; set; } = null!;
 
-    public Instance WasmInstance { get; set; }
+    public Instance WasmInstance { get; set; } = null!;
 
-    public Engine WasmEngine { get; set; }
+    public Engine WasmEngine { get; set; } = null!;
+
+    public ScriptEngine PyEngine { get; set; } = null!;
+
+
+    private void InitPy()
+    {
+        PyEngine = IronPython.Hosting.Python.CreateEngine();
+        var scope = PyEngine.CreateScope();
+        scope.SetVariable("addCs", Add);
+        PyEngine.Execute(@"
+def add(a, b):
+    return a + b
+
+def addLoop(count):
+    a = 0
+    for i in range(count):
+        a += add(i, i)
+    return a
+
+def addLoopInterop(count):
+    a = 0
+    for i in range(count):
+        a += addCs(i, i)
+    return a
+    ", scope);
+        PyAdd = scope.GetVariable<Func<int, int, int>>("add");
+        PyAddLoop = scope.GetVariable<Func<int, int>>("addLoop");
+        PyAddLoopInterop = scope.GetVariable<Func<int, int>>("addLoopInterop");
+    }
 
     private void InitJS()
     {
@@ -170,6 +205,12 @@ function addLoopInterop(count) {
     }
 
     [Benchmark]
+    public int PyOnly()
+    {
+        return PyAddLoop(Count);
+    }
+
+    [Benchmark]
     public int CsToWasm()
     {
         var a = 0;
@@ -196,6 +237,15 @@ function addLoopInterop(count) {
     }
 
     [Benchmark]
+    public int CsToPy()
+    {
+        var a = 0;
+        for (var i = 0; i < Count; i++) a += PyAdd(i, i);
+
+        return a;
+    }
+
+    [Benchmark]
     public int WasmToCs()
     {
         return WasmAddLoopInterop.Invoke(Count);
@@ -211,5 +261,11 @@ function addLoopInterop(count) {
     public int JSToCs()
     {
         return (int)JSEngine.Script.addLoopInterop(Count);
+    }
+
+    [Benchmark]
+    public int PyToCs()
+    {
+        return PyAddLoopInterop(Count);
     }
 }

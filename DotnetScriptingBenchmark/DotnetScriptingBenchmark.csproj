@@ -9,6 +9,7 @@
 
     <ItemGroup>
       <PackageReference Include="BenchmarkDotNet" Version="0.15.2" />
+      <PackageReference Include="IronPython" Version="3.4.2" />
       <PackageReference Include="Microsoft.ClearScript.V8" Version="7.5.0" />
       <PackageReference Include="Microsoft.ClearScript.V8.Native.linux-x64" Version="7.5.0" />
       <PackageReference Include="NLua" Version="1.7.5" />
